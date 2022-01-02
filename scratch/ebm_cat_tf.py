@@ -61,9 +61,8 @@ ebm.fit(X_train, y_train)
 
 
 class BiasLayer(tf.keras.layers.Layer):
-    def __init__(self):
-        super().__init__()
-        
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
     def build(self, input_shape):
         self.bias = self.add_weight("bias", shape=(1,))
@@ -86,23 +85,26 @@ class InteractionLayer(tf.keras.layers.Layer):
 
 
 class EBMModel(tf.keras.Model):
-    def __init__(self, model=None):
+    def __init__(self, model=None, set_weights=False):
         super().__init__()
         self.model = model
-        self.bias = BiasLayer()
-        self.softmax = tf.keras.layers.Activation('sigmoid')
+        self.bias = BiasLayer(name="bias")
+        self.sigmoid = tf.keras.layers.Activation("sigmoid")
         self.create_model()
 
-    def create_model(self):
+    def create_model(self, set_weights=False):
         """
         See reference: https://github.com/interpretml/ebm2onnx/blob/master/ebm2onnx/convert.py
         """
         self.feature_model = []
         self.feature_info = []
+        self.feature_names = []
         for feature_index in range(len(self.model.feature_names)):
             feature_name = self.model.feature_names[feature_index]
+            feature_name = feature_name.replace(" ", "__")
             feature_type = self.model.feature_types[feature_index]
             feature_group = self.model.feature_groups_[feature_index]
+            self.feature_names.append(feature_name)
             info_config = {}
             # print(feature_type)
             if feature_type == "continuous":
@@ -376,6 +378,14 @@ class EBMModel(tf.keras.Model):
                 # raise NotImplementedError("")
                 continue
 
+        if set_weights:
+            for feature_index in range(len(self.feature_names)):
+                nm = self.feature_names[feature_index]
+                self.feature_model[feature_index].get_layer(nm).set_weights(
+                    self.feature_info[feature_index]["scores"]
+                )
+            self.bias.set_weights(model.intercept_)
+
     def call(self, inputs):
         # print(zip(self.feature_model, self.feature_info))
         outputs = []
@@ -387,8 +397,12 @@ class EBMModel(tf.keras.Model):
                     outputs.append(mod(tf.convert_to_tensor(inputs[cols].tolist)))
                 else:
                     outputs.append(
-                        mod([tf.convert_to_tensor(inputs[cols[0]].tolist),
-                        tf.convert_to_tensor(inputs[cols[1]].tolist)])
+                        mod(
+                            [
+                                tf.convert_to_tensor(inputs[cols[0]].tolist),
+                                tf.convert_to_tensor(inputs[cols[1]].tolist),
+                            ]
+                        )
                     )
         elif type(inputs) in [dict]:
             for mod, info in zip(self.feature_model, self.feature_info):
@@ -396,35 +410,31 @@ class EBMModel(tf.keras.Model):
                 if type(cols) is str:
                     outputs.append(mod(inputs[cols]))
                 else:
-                    outputs.append(
-                        mod([inputs[cols[0]],
-                        inputs[cols[1]] 
-                        ])
-                    )
+                    outputs.append(mod([inputs[cols[0]], inputs[cols[1]]]))
         else:
             for mod, info in zip(self.feature_model, self.feature_info):
                 cols = info["column_index"]
                 if type(cols) is str or type(cols) is int:
-                    if info['feature_type'] == 'continuous':
+                    if info["feature_type"] == "continuous":
                         inputs[:, cols].tolist()
                         c_input = tf.cast(inputs[:, cols].tolist(), tf.float32)
                     else:
                         c_input = tf.convert_to_tensor(inputs[:, cols].tolist())
                     outputs.append(mod(c_input))
                 else:
-                    if info['feature_type'][0] == 'continuous':
+                    if info["feature_type"][0] == "continuous":
                         l_input = tf.cast(inputs[:, cols[0]].tolist(), tf.float32)
                     else:
                         l_input = tf.convert_to_tensor(inputs[:, cols[0]].tolist())
 
-                    if info['feature_type'][1] == 'continuous':
+                    if info["feature_type"][1] == "continuous":
                         r_input = tf.cast(inputs[:, cols[1]].tolist(), tf.float32)
                     else:
                         r_input = tf.convert_to_tensor(inputs[:, cols[1]].tolist())
                     outputs.append(mod([l_input, r_input]))
 
         pre_activation = self.bias(outputs)
-        return self.softmax(pre_activation)
+        return self.sigmoid(pre_activation)
 
 
 model = EBMModel(ebm)
@@ -435,7 +445,46 @@ model = EBMModel(ebm)
 X_train_dict = {}
 for k in X_train.columns:
     X_train_dict[k] = tf.convert_to_tensor(X_train[k].tolist())
+y_train_num = np.array(y_train == " >50K").astype(np.float32)
 model(X_train_dict)
 
-model.compile(loss='binary_crossentropy', optimizer='sgd', metrics=['accuracy'])
-model.fit(X_train_dict, np.array(y_train==" >50K").astype(np.float32), verbose=1, batch_size=5, epochs=15)
+model.compile(loss="binary_crossentropy", optimizer="sgd", metrics=["accuracy"])
+model.fit(
+    X_train_dict,
+    np.array(y_train == " >50K").astype(np.float32),
+    verbose=1,
+    batch_size=5,
+    epochs=1,
+)
+
+from sklearn.metrics import accuracy_score, f1_score
+
+model2 = EBMModel(ebm, True)
+print(
+    "base model",
+    accuracy_score(y_train_num, np.round(model.predict(X_train_dict))),
+    f1_score(y_train_num, np.round(model.predict(X_train_dict))),
+)
+print(
+    "transfer model",
+    accuracy_score(y_train_num, np.round(model2.predict(X_train_dict))),
+    f1_score(y_train_num, np.round(model2.predict(X_train_dict))),
+)
+
+print(
+    "ebm model",
+    accuracy_score(y_train_num, ebm.predict(X_train) == " >50K"),
+    f1_score(y_train_num, ebm.predict(X_train) == " >50K"),
+)
+
+ebm.predict_proba(X_train)
+model2.predict(X_train_dict)
+
+model2.compile(loss="binary_crossentropy", optimizer="sgd", metrics=["accuracy"])
+model2.fit(
+    X_train_dict,
+    np.array(y_train == " >50K").astype(np.float32),
+    verbose=1,
+    batch_size=8,
+    epochs=10,
+)
