@@ -5,6 +5,7 @@ transfer learning or fine-tuning
 Reference: https://tensorflow.google.cn/recommenders/examples/featurization?hl=zh-cn
 
 Adding categorical support...
+We just want to test for simple 2d examples
 """
 import copy
 from collections.abc import Iterable
@@ -18,40 +19,13 @@ from interpret.glassbox import (
     ExplainableBoostingClassifier,
 )
 
-df = pd.read_csv(
-    "https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.data",
-    header=None,
-)
-df.columns = [
-    "Age",
-    "WorkClass",
-    "fnlwgt",
-    "Education",
-    "EducationNum",
-    "MaritalStatus",
-    "Occupation",
-    "Relationship",
-    "Race",
-    "Gender",
-    "CapitalGain",
-    "CapitalLoss",
-    "HoursPerWeek",
-    "NativeCountry",
-    "Income",
-]
-df = df.sample(frac=0.05)
-train_cols = df.columns[0:-1]
-label = df.columns[-1]
-X = df[train_cols].copy()
-y = df[label].copy()
+# output = model(X_train.values)
+from tensorflow.python.ops.numpy_ops import np_config
 
-# convert things so we only have float32
-for d, c in zip(list(X.dtypes), X.columns):
-    if d.type is not np.object_:
-        X[c] = X[c].astype("float32")
-
+np_config.enable_numpy_behavior()
 
 seed = 1
+X, y = datasets.make_moons(random_state=seed)
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.20, random_state=seed
 )
@@ -188,7 +162,6 @@ class EBMModel(tf.keras.Model):
                                 ),
                                 output_mode="one_hot",
                                 pad_to_max_tokens=True,
-                                input_shape=(1,),
                             ),
                             tf.keras.layers.Dense(1, use_bias=False),
                         ],
@@ -213,7 +186,6 @@ class EBMModel(tf.keras.Model):
                         )
                         + 1
                     )
-                    left_slice = slice(0, left_size)
                     left_x = tf.keras.layers.Discretization(
                         self.model.pair_preprocessor_.col_bin_edges_[
                             feature_group[0]
@@ -250,7 +222,6 @@ class EBMModel(tf.keras.Model):
                         )
                         + 1
                     )
-                    left_slice = slice(0, left_size)
                     left_x = tf.keras.layers.StringLookup(
                         max_tokens=len(
                             list(
@@ -299,7 +270,6 @@ class EBMModel(tf.keras.Model):
                         )
                         + 1
                     )
-                    right_slice = slice(0, right_size)
                     right_x = tf.keras.layers.Discretization(
                         self.model.pair_preprocessor_.col_bin_edges_[
                             feature_group[1]
@@ -336,7 +306,6 @@ class EBMModel(tf.keras.Model):
                         )
                         + 1
                     )
-                    right_slice = slice(0, right_size)
                     right_x = tf.keras.layers.StringLookup(
                         max_tokens=len(
                             list(
@@ -402,10 +371,9 @@ class EBMModel(tf.keras.Model):
                     self.model.preprocessor_.feature_names[idx] for idx in feature_group
                 ]
                 info_config["column_index"] = list(feature_group)
-
-                info_config["scores"] = self.model.additive_terms_[
-                    feature_index
-                ]  # [left_slice, right_slice]
+                info_config["scores"] = self.model.additive_terms_[feature_index][
+                    1:, 1:
+                ]
                 self.feature_info.append(info_config)
             else:
                 # raise NotImplementedError("")
@@ -415,18 +383,9 @@ class EBMModel(tf.keras.Model):
             for feature_index in range(len(self.feature_names)):
                 nm = self.feature_names[feature_index]
                 w = self.feature_model[feature_index].weights[0]
-                learned_w = self.feature_info[feature_index]["scores"]
-                try:
-                    if len(self.feature_info[feature_index]["scores"].shape) == 2:
-                        if w.shape[0] < learned_w.shape[0]:
-                            learned_w = learned_w[1:, :]
-                        if w.shape[1] < learned_w.shape[1]:
-                            learned_w = learned_w[:, 1:]
-                    else:
-                        learned_w = learned_w.reshape(w.shape)
-                    self.feature_model[feature_index].set_weights([learned_w])
-                except:
-                    print(nm, w.shape, learned_w.shape)
+                self.feature_model[feature_index].set_weights(
+                    [self.feature_info[feature_index]["scores"].reshape(w.shape)]
+                )
             self.bias.set_weights([np.array(self.model.intercept_).reshape((1,))])
 
     def call(self, inputs):
@@ -503,17 +462,12 @@ model = EBMModel(ebm)
 # output = model(X_train)
 
 # output = model(X_train.values)
-
-X_train_dict = {}
-for k in X_train.columns:
-    X_train_dict[k] = tf.convert_to_tensor(X_train[k].tolist())
-y_train_num = np.array(y_train == " >50K").astype(np.float32)
-model(X_train_dict)
+model(X_train)
 
 model.compile(loss="binary_crossentropy", optimizer="sgd", metrics=["accuracy"])
 model.fit(
-    X_train_dict,
-    np.array(y_train == " >50K").astype(np.float32),
+    X_train,
+    y_train,
     verbose=1,
     batch_size=5,
     epochs=1,
@@ -524,29 +478,22 @@ from sklearn.metrics import accuracy_score, f1_score
 model2 = EBMModel(ebm, True)
 print(
     "base model",
-    accuracy_score(y_train_num, np.round(model.predict(X_train_dict))),
-    f1_score(y_train_num, np.round(model.predict(X_train_dict))),
+    accuracy_score(y_train, np.round(model.predict(X_train))),
+    f1_score(y_train, np.round(model.predict(X_train))),
 )
 print(
     "transfer model",
-    accuracy_score(y_train_num, np.round(model2.predict(X_train_dict))),
-    f1_score(y_train_num, np.round(model2.predict(X_train_dict))),
+    accuracy_score(y_train, np.round(model2.predict(X_train))),
+    f1_score(y_train, np.round(model2.predict(X_train))),
 )
 
 print(
     "ebm model",
-    accuracy_score(y_train_num, ebm.predict(X_train) == " >50K"),
-    f1_score(y_train_num, ebm.predict(X_train) == " >50K"),
+    accuracy_score(y_train, ebm.predict(X_train)),
+    f1_score(y_train, ebm.predict(X_train)),
 )
+model2.feature_model[0].weights[0].numpy().flatten()
+model2.feature_info[0]["scores"]
 
-ebm.predict_proba(X_train)
-# model2.predict(X_train_dict)
-
-# model2.compile(loss="binary_crossentropy", optimizer="sgd", metrics=["accuracy"])
-# model2.fit(
-#     X_train_dict,
-#     np.array(y_train == " >50K").astype(np.float32),
-#     verbose=1,
-#     batch_size=8,
-#     epochs=1,
-# )
+ebm.intercept_
+model2.bias.get_weights()
