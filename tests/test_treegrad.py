@@ -8,26 +8,27 @@ from treegrad import __version__
 from treegrad.treegrad import TreeGradClassifier, make_treegrad
 from treegrad.utils_lgb import LGBClassifier
 
-# def test_version():
-#     assert __version__ == "0.1.0"
+
+def test_version():
+    assert __version__ == "0.1.0"
 
 
-# def test_treegrad_interpret_func():
-#     seed = 1
-#     X, y = datasets.make_moons(random_state=seed)
-#     ebm = ExplainableBoostingClassifier(random_state=seed)
-#     ebm.fit(X, y)
-#     model = make_treegrad(ebm, set_weights=True)
-#     assert np.abs(accuracy_score(y, ebm.predict(X)) - accuracy_score(y, np.round(model.predict(X)))) < 0.2
+def test_treegrad_interpret_func():
+    seed = 1
+    X, y = datasets.make_moons(random_state=seed)
+    ebm = ExplainableBoostingClassifier(random_state=seed)
+    ebm.fit(X, y)
+    model = make_treegrad(ebm, set_weights=True)
+    assert np.abs(accuracy_score(y, ebm.predict(X)) - accuracy_score(y, np.round(model.predict(X)))) < 0.2
 
 
-# def test_treegrad_interpret_class():
-#     seed = 1
-#     X, y = datasets.make_moons(random_state=seed)
-#     ebm = ExplainableBoostingClassifier(random_state=seed)
-#     ebm.fit(X, y)
-#     model = TreeGradClassifier(ebm, set_weights=True)
-#     assert np.abs(accuracy_score(y, ebm.predict(X)) - accuracy_score(y, np.round(model.predict(X)))) < 0.2
+def test_treegrad_interpret_class():
+    seed = 1
+    X, y = datasets.make_moons(random_state=seed)
+    ebm = ExplainableBoostingClassifier(random_state=seed)
+    ebm.fit(X, y)
+    model = TreeGradClassifier(ebm, set_weights=True)
+    assert np.abs(accuracy_score(y, ebm.predict(X)) - accuracy_score(y, np.round(model.predict(X)))) < 0.2
 
 
 def test_treegrad_tf_func():
