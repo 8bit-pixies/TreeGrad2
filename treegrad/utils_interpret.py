@@ -1,63 +1,12 @@
-"""
-Uses a base EBM model for learning an architecture which we can then apply
-transfer learning or fine-tuning
-
-Reference: https://tensorflow.google.cn/recommenders/examples/featurization?hl=zh-cn
-
-Adding categorical support...
-"""
 import copy
 from collections.abc import Iterable
+
 import numpy as np
-import tensorflow as tf
 import pandas as pd
+import tensorflow as tf
+from interpret.glassbox import ExplainableBoostingClassifier
 from sklearn import datasets
 from sklearn.model_selection import train_test_split
-from interpret.glassbox import (
-    ExplainableBoostingRegressor,
-    ExplainableBoostingClassifier,
-)
-
-df = pd.read_csv(
-    "https://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.data",
-    header=None,
-)
-df.columns = [
-    "Age",
-    "WorkClass",
-    "fnlwgt",
-    "Education",
-    "EducationNum",
-    "MaritalStatus",
-    "Occupation",
-    "Relationship",
-    "Race",
-    "Gender",
-    "CapitalGain",
-    "CapitalLoss",
-    "HoursPerWeek",
-    "NativeCountry",
-    "Income",
-]
-df = df.sample(frac=0.05)
-train_cols = df.columns[0:-1]
-label = df.columns[-1]
-X = df[train_cols].copy()
-y = df[label].copy()
-
-# convert things so we only have float32
-for d, c in zip(list(X.dtypes), X.columns):
-    if d.type is not np.object_:
-        X[c] = X[c].astype("float32")
-
-
-seed = 1
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.20, random_state=seed
-)
-
-ebm = ExplainableBoostingClassifier(random_state=seed)
-ebm.fit(X_train, y_train)
 
 
 class BiasLayer(tf.keras.layers.Layer):
@@ -99,7 +48,7 @@ class InteractionLayer(tf.keras.layers.Layer):
         return tf.gather_nd(self.lookup, indx)
 
 
-class EBMModel(tf.keras.Model):
+class EBMClassifier(tf.keras.Model):
     def __init__(self, model=None, set_weights=False):
         super().__init__()
         self.model = model
@@ -130,30 +79,13 @@ class EBMModel(tf.keras.Model):
                     tf.keras.Sequential(
                         [
                             tf.keras.layers.Discretization(
-                                list(
-                                    self.model.preprocessor_.col_bin_edges_[
-                                        feature_group[0]
-                                    ]
-                                ),
+                                list(self.model.preprocessor_.col_bin_edges_[feature_group[0]]),
                                 input_shape=(1,),
                             ),
                             tf.keras.layers.IntegerLookup(
-                                len(
-                                    self.model.preprocessor_.col_bin_edges_[
-                                        feature_group[0]
-                                    ]
-                                )
-                                + 1,
+                                len(self.model.preprocessor_.col_bin_edges_[feature_group[0]]) + 1,
                                 vocabulary=tf.constant(
-                                    list(
-                                        range(
-                                            len(
-                                                self.model.preprocessor_.col_bin_edges_[
-                                                    feature_group[0]
-                                                ]
-                                            )
-                                        )
-                                    )
+                                    list(range(len(self.model.preprocessor_.col_bin_edges_[feature_group[0]])))
                                 ),
                                 output_mode="one_hot",
                                 pad_to_max_tokens=True,
@@ -173,19 +105,9 @@ class EBMModel(tf.keras.Model):
                     tf.keras.Sequential(
                         [
                             tf.keras.layers.StringLookup(
-                                max_tokens=len(
-                                    list(
-                                        self.model.preprocessor_.col_mapping_[
-                                            feature_group[0]
-                                        ].keys()
-                                    )
-                                )
+                                max_tokens=len(list(self.model.preprocessor_.col_mapping_[feature_group[0]].keys()))
                                 + 1,
-                                vocabulary=list(
-                                    self.model.preprocessor_.col_mapping_[
-                                        feature_group[0]
-                                    ].keys()
-                                ),
+                                vocabulary=list(self.model.preprocessor_.col_mapping_[feature_group[0]].keys()),
                                 output_mode="one_hot",
                                 pad_to_max_tokens=True,
                                 input_shape=(1,),
@@ -205,85 +127,30 @@ class EBMModel(tf.keras.Model):
                 # else not implemented right now
                 if interactions[0] == "continuous":
                     left_input = tf.keras.layers.Input(shape=(1,))
-                    left_size = (
-                        len(
-                            self.model.pair_preprocessor_.col_bin_edges_[
-                                feature_group[0]
-                            ].tolist()
-                        )
-                        + 1
-                    )
+                    left_size = len(self.model.pair_preprocessor_.col_bin_edges_[feature_group[0]].tolist()) + 1
                     left_slice = slice(0, left_size)
                     left_x = tf.keras.layers.Discretization(
-                        self.model.pair_preprocessor_.col_bin_edges_[
-                            feature_group[0]
-                        ].tolist()
+                        self.model.pair_preprocessor_.col_bin_edges_[feature_group[0]].tolist()
                     )(left_input)
                     left_x = tf.keras.layers.IntegerLookup(
-                        len(
-                            self.model.pair_preprocessor_.col_bin_edges_[
-                                feature_group[0]
-                            ].tolist()
-                        )
-                        + 1,
+                        len(self.model.pair_preprocessor_.col_bin_edges_[feature_group[0]].tolist()) + 1,
                         vocabulary=tf.constant(
-                            list(
-                                range(
-                                    len(
-                                        self.model.pair_preprocessor_.col_bin_edges_[
-                                            feature_group[0]
-                                        ].tolist()
-                                    )
-                                )
-                            )
+                            list(range(len(self.model.pair_preprocessor_.col_bin_edges_[feature_group[0]].tolist())))
                         ),
                     )(left_x)
                 elif interactions[0] == "categorical":
                     left_input = tf.keras.layers.Input(shape=(1,), dtype=tf.string)
-                    left_size = (
-                        len(
-                            list(
-                                self.model.preprocessor_.col_mapping_[
-                                    feature_group[0]
-                                ].keys()
-                            )
-                        )
-                        + 1
-                    )
+                    left_size = len(list(self.model.preprocessor_.col_mapping_[feature_group[0]].keys())) + 1
                     left_slice = slice(0, left_size)
                     left_x = tf.keras.layers.StringLookup(
-                        max_tokens=len(
-                            list(
-                                self.model.preprocessor_.col_mapping_[
-                                    feature_group[0]
-                                ].keys()
-                            )
-                        )
-                        + 1,
-                        vocabulary=list(
-                            self.model.preprocessor_.col_mapping_[
-                                feature_group[0]
-                            ].keys()
-                        ),
+                        max_tokens=len(list(self.model.preprocessor_.col_mapping_[feature_group[0]].keys())) + 1,
+                        vocabulary=list(self.model.preprocessor_.col_mapping_[feature_group[0]].keys()),
                         pad_to_max_tokens=True,
                     )(left_input)
                     left_x = tf.keras.layers.IntegerLookup(
-                        len(
-                            self.model.pair_preprocessor_.col_mapping_[
-                                feature_group[0]
-                            ].keys()
-                        )
-                        + 1,
+                        len(self.model.pair_preprocessor_.col_mapping_[feature_group[0]].keys()) + 1,
                         vocabulary=tf.constant(
-                            list(
-                                range(
-                                    len(
-                                        self.model.pair_preprocessor_.col_mapping_[
-                                            feature_group[0]
-                                        ].keys()
-                                    )
-                                )
-                            )
+                            list(range(len(self.model.pair_preprocessor_.col_mapping_[feature_group[0]].keys())))
                         ),
                     )(left_x)
                 else:
@@ -291,85 +158,30 @@ class EBMModel(tf.keras.Model):
 
                 if interactions[1] == "continuous":
                     right_input = tf.keras.layers.Input(shape=(1,))
-                    right_size = (
-                        len(
-                            self.model.pair_preprocessor_.col_bin_edges_[
-                                feature_group[1]
-                            ].tolist()
-                        )
-                        + 1
-                    )
+                    right_size = len(self.model.pair_preprocessor_.col_bin_edges_[feature_group[1]].tolist()) + 1
                     right_slice = slice(0, right_size)
                     right_x = tf.keras.layers.Discretization(
-                        self.model.pair_preprocessor_.col_bin_edges_[
-                            feature_group[1]
-                        ].tolist()
+                        self.model.pair_preprocessor_.col_bin_edges_[feature_group[1]].tolist()
                     )(right_input)
                     right_x = tf.keras.layers.IntegerLookup(
-                        len(
-                            self.model.pair_preprocessor_.col_bin_edges_[
-                                feature_group[1]
-                            ].tolist()
-                        )
-                        + 1,
+                        len(self.model.pair_preprocessor_.col_bin_edges_[feature_group[1]].tolist()) + 1,
                         vocabulary=tf.constant(
-                            list(
-                                range(
-                                    len(
-                                        self.model.pair_preprocessor_.col_bin_edges_[
-                                            feature_group[1]
-                                        ].tolist()
-                                    )
-                                )
-                            )
+                            list(range(len(self.model.pair_preprocessor_.col_bin_edges_[feature_group[1]].tolist())))
                         ),
                     )(right_x)
                 elif interactions[1] == "categorical":
                     right_input = tf.keras.layers.Input(shape=(1,), dtype=tf.string)
-                    right_size = (
-                        len(
-                            list(
-                                self.model.preprocessor_.col_mapping_[
-                                    feature_group[1]
-                                ].keys()
-                            )
-                        )
-                        + 1
-                    )
+                    right_size = len(list(self.model.preprocessor_.col_mapping_[feature_group[1]].keys())) + 1
                     right_slice = slice(0, right_size)
                     right_x = tf.keras.layers.StringLookup(
-                        max_tokens=len(
-                            list(
-                                self.model.preprocessor_.col_mapping_[
-                                    feature_group[1]
-                                ].keys()
-                            )
-                        )
-                        + 1,
-                        vocabulary=list(
-                            self.model.preprocessor_.col_mapping_[
-                                feature_group[1]
-                            ].keys()
-                        ),
+                        max_tokens=len(list(self.model.preprocessor_.col_mapping_[feature_group[1]].keys())) + 1,
+                        vocabulary=list(self.model.preprocessor_.col_mapping_[feature_group[1]].keys()),
                         pad_to_max_tokens=True,
                     )(right_input)
                     right_x = tf.keras.layers.IntegerLookup(
-                        len(
-                            self.model.pair_preprocessor_.col_mapping_[
-                                feature_group[1]
-                            ].keys()
-                        )
-                        + 1,
+                        len(self.model.pair_preprocessor_.col_mapping_[feature_group[1]].keys()) + 1,
                         vocabulary=tf.constant(
-                            list(
-                                range(
-                                    len(
-                                        self.model.pair_preprocessor_.col_mapping_[
-                                            feature_group[1]
-                                        ].keys()
-                                    )
-                                )
-                            )
+                            list(range(len(self.model.pair_preprocessor_.col_mapping_[feature_group[1]].keys())))
                         ),
                     )(right_x)
                 else:
@@ -398,14 +210,10 @@ class EBMModel(tf.keras.Model):
                     )
                 )
                 info_config["feature_type"] = interactions
-                info_config["column_name"] = [
-                    self.model.preprocessor_.feature_names[idx] for idx in feature_group
-                ]
+                info_config["column_name"] = [self.model.preprocessor_.feature_names[idx] for idx in feature_group]
                 info_config["column_index"] = list(feature_group)
 
-                info_config["scores"] = self.model.additive_terms_[
-                    feature_index
-                ]  # [left_slice, right_slice]
+                info_config["scores"] = self.model.additive_terms_[feature_index]  # [left_slice, right_slice]
                 self.feature_info.append(info_config)
             else:
                 # raise NotImplementedError("")
@@ -497,79 +305,3 @@ class EBMModel(tf.keras.Model):
 
         pre_activation = self.bias(outputs)
         return self.sigmoid(pre_activation)
-
-
-model = EBMModel(ebm)
-# output = model(X_train)
-
-# output = model(X_train.values)
-
-X_train_dict = {}
-for k in X_train.columns:
-    X_train_dict[k] = tf.convert_to_tensor(X_train[k].tolist())
-y_train_num = np.array(y_train == " >50K").astype(np.float32)
-model(X_train_dict)
-
-model.compile(loss="binary_crossentropy", optimizer="sgd", metrics=["accuracy"])
-model.fit(
-    X_train_dict,
-    np.array(y_train == " >50K").astype(np.float32),
-    verbose=1,
-    batch_size=5,
-    epochs=1,
-)
-
-from sklearn.metrics import accuracy_score, f1_score
-
-model2 = EBMModel(ebm, True)
-print(
-    "base model",
-    accuracy_score(y_train_num, np.round(model.predict(X_train_dict))),
-    f1_score(y_train_num, np.round(model.predict(X_train_dict))),
-)
-print(
-    "transfer model",
-    accuracy_score(y_train_num, np.round(model2.predict(X_train_dict))),
-    f1_score(y_train_num, np.round(model2.predict(X_train_dict))),
-)
-
-print(
-    "ebm model",
-    accuracy_score(y_train_num, ebm.predict(X_train) == " >50K"),
-    f1_score(y_train_num, ebm.predict(X_train) == " >50K"),
-)
-
-ebm.predict_proba(X_train)
-model2.predict(X_train_dict)
-
-model2.compile(loss="binary_crossentropy", optimizer="sgd", metrics=["accuracy"])
-model2.fit(
-    X_train_dict,
-    np.array(y_train == " >50K").astype(np.float32),
-    verbose=1,
-    batch_size=32,
-    epochs=1000,
-)
-print(
-    "transfer model",
-    accuracy_score(y_train_num, np.round(model2.predict(X_train_dict))),
-    f1_score(y_train_num, np.round(model2.predict(X_train_dict))),
-)
-
-X_test_dict = {}
-for k in X_train.columns:
-    X_test_dict[k] = tf.convert_to_tensor(X_test[k].tolist())
-y_test_num = np.array(y_test == " >50K").astype(np.float32)
-
-
-print(
-    "transfer model",
-    accuracy_score(y_test_num, np.round(model2.predict(X_test_dict))),
-    f1_score(y_test_num, np.round(model2.predict(X_test_dict))),
-)
-
-print(
-    "ebm model",
-    accuracy_score(y_test_num, ebm.predict(X_test) == " >50K"),
-    f1_score(y_test_num, ebm.predict(X_test) == " >50K"),
-)

@@ -1,0 +1,51 @@
+[tool.poetry]
+name = "treegrad"
+version = "0.1.0"
+description = ""
+authors = ["CS <2498638+charliec443@users.noreply.github.com>"]
+
+[tool.poetry.dependencies]
+python = ">=3.7,<3.8"
+tensorflow = "^2.7.0"
+lightgbm = {version = "^3.3.1", optional = true}
+interpret = {version = "^0.2.7", optional = true}
+scikit-learn = "^1.0.2"
+
+[tool.poetry.extras]
+interpret = ["interpret"]
+lightgbm = ["lightgbm"]
+
+[tool.poetry.dev-dependencies]
+pytest = "^5.2"
+black = "^21.12b0"
+isort = "^5.10.1"
+flake8 = "<4.0.0"
+mypy = "^0.930"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 120
+target-version = ['py37']
+include = '\.pyi?$'
+exclude = '''
+(
+  /(
+      \.eggs         # exclude a few common directories in the
+    | \.git          # root of the project
+    | \.hg
+    | \.mypy_cache
+    | \.tox
+    | \.venv
+    | _build
+    | buck-out
+    | build
+    | dist
+    | pb2.py
+    | \.pyi
+    | protos
+  )/
+)
+'''
