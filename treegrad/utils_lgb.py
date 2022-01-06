@@ -38,210 +38,13 @@ def get_route(tree):
         if "left_child" in sub_tree:
             try:
                 route_path["left"] = sub_tree["left_child"]["split_index"]
-            except Exception as e:
-                print("\tleft_child {}".format(e))
-                pass
-        if "right_child" in sub_tree:
-            try:
-                route_path["right"] = sub_tree["right_child"]["split_index"]
-            except Exception as e:
-                print("\tright_child {}".format(e))
-                pass
-
-        # print(route_path)
-        if len(route_path) > 0:
-            tree_dict[sub_tree["split_index"]] = route_path.copy()
-
-        if "left_child" in sub_tree:
-            recurse(sub_tree["left_child"], "left", sub_tree["split_index"])
-        if "right_child" in sub_tree:
-            recurse(sub_tree["right_child"], "right", sub_tree["split_index"])
-        # print("\n\n")
-
-    recurse(tree)
-
-    # combine leaf_dict and boundary_dict
-    max_index = np.max(list(boundary_dict.keys()))
-
-    for k in leaf_dict.keys():
-        # print(leaf_dict)
-        if "left" in leaf_dict[k]:
-            max_index += 1
-            boundary_dict[k]["left"] = max_index
-            tree_dict[k] = tree_dict.get(k, {})
-            tree_dict[k]["left"] = max_index
-            tree_dict[max_index] = {}
-            pred_val = expit(leaf_dict[k]["left"]["leaf_value"])
-            boundary_dict[max_index] = {
-                "predict": np.array([1 - pred_val, pred_val]),
-                "leaf_value": leaf_dict[k]["left"]["leaf_value"],
-            }
-
-        if "right" in leaf_dict[k]:
-            max_index += 1
-            boundary_dict[k]["right"] = max_index
-            tree_dict[k] = tree_dict.get(k, {})
-            tree_dict[k]["right"] = max_index
-            tree_dict[max_index] = {}
-            # print(leaf_dict)
-            pred_val = expit(leaf_dict[k]["right"]["leaf_value"])
-            boundary_dict[max_index] = {
-                "predict": np.array([1 - pred_val, pred_val]),
-                "leaf_value": leaf_dict[k]["right"]["leaf_value"],
-            }
-
-    return tree_dict, boundary_dict, leaf_dict
-
-
-def boundary_dict_mapping(boundary_dict, mode="raw"):
-    weights = []
-    inter = []
-    pred = []
-
-    coef_mapping = []
-    for idx in sorted(list(boundary_dict.keys())):
-        if "coef" in boundary_dict[idx]:
-            weights.append(boundary_dict[idx]["coef"])
-            inter.append(boundary_dict[idx]["inter"])
-            coef_mapping.append(idx)
-        else:
-            if mode == "proba":
-                pred.append(boundary_dict[idx]["predict"])
-            elif mode == "raw":
-                pred.append(boundary_dict[idx]["leaf_value"])
-            else:
-                raise Exception("Expecting mode in ['proba', 'raw'], got {}".format(mode))
-
-    weights = np.hstack(weights)
-    inter = np.hstack(inter)
-    pred = np.vstack(pred)
-    return [(weights), (inter), (pred)], coef_mapping
-
-
-class BaseTree(object):
-    def build_tree(self, depth=2):
-        """
-        builds the adjancey list up to depth of 2
-        """
-        total_nodes = np.sum([2 ** x for x in range(depth)])
-        nodes = list(range(total_nodes))
-        nodes_per_level = np.cumsum([2 ** x for x in range(depth - 1)])
-        nodes_level = [x.tolist() for x in np.array_split(nodes, nodes_per_level)]
-
-        adj_list = dict((idx, {}) for idx in nodes)
-        for fr in nodes_level[:-1]:
-            for i in fr:
-                i_list = adj_list.get(i, {})
-                # the connected nodes always follows this pattern
-                i_list["left"] = i * 2 + 1
-                i_list["right"] = i * 2 + 2
-                adj_list[i] = i_list.copy()
-        return adj_list
-
-    def calculate_routes(self, adj_list=None):
-        """
-        Calculates routes in GBM format.
-
-        {0:{'left': 1, 'right': 2}, 1:{}, 2:{}}                      --> [([(0, 0)], 1),
-                                                                          ([(0, 1)], 2)]
-        {0:{'left': 1, 'right': 2}, 1:{'left': 3, 'right':4},
-         2:{}, 3:{}, 4: {}}                                          --> [([(0, 0), (1, 0)], 3),
-                                                                          ([(0, 0), (1, 1)], 4),
-                                                                          ([(0, 1)], 2)]
-        """
-        if adj_list is None:
-            adj_list = self.build_tree(3)
-
-        def get_next(next_node, current_path):
-            paths = adj_list[next_node]
-            if len(paths) == 0:
-                all_paths.append((current_path, next_node))
-            else:
-                # do left...
-                get_next(paths["left"], current_path + [(next_node, 0)])
-                get_next(paths["right"], current_path + [(next_node, 1)])
-
-        all_paths = []
-        get_next(0, [])
-        return all_paths
-
-
-class Tree(BaseTree):
-    """
-    Tree object to help abstract out some of the methods that are commonly used.
-    Also used to help figure out how to maintain state around pruning and grafting nodes
-
-    Usage:
-    tt = Tree().graft()
-    tt.plot()
-    """
-
-    def __init__(self, depth=3, nodes=None, tree=None, previous_state={}):
-        self.depth = depth
-        self.nodes = nodes if nodes is not None else np.sum([2 ** x for x in range(self.depth)])
-        self.tree = tree if tree is not None else self.build_tree(self.depth)
-        self.update()
-
-    def update(self):
-        self.update_route()
-        self.update_nodes()
-
-    def update_nodes(self):
-        self.nodes = len([k for k, v in self.tree.items() if len(v) > 0])
-
-    def update_depth(self):
-        all_routes = [len(r) for r, _ in self.route]
-        self.depth = max(all_routes)
-
-    def update_route(self):
-        self.route = self.calculate_routes(self.tree)
-        self.route.sort(key=lambda x: x[1])
-        self.route_list = old_route_to_new_route(self.route, self.nodes)
-
-
-def l2_norm(params):
-    """Computes l2 norm of params by flattening them into a vector."""
-    flattened, _ = weights_flatten(params)
-    return np.dot(flattened, flattened)
-
-
-def get_route(tree):
-    # gets the route for the tree...
-    tree_dict = {}
-    boundary_dict = {}
-    leaf_dict = {}
-
-    def recurse(sub_tree, child_split=None, parent=None):
-        # pprint.pprint(sub_tree)
-        route_path = {}
-
-        if "threshold" in sub_tree:
-            boundary_dict[sub_tree["split_index"]] = {
-                "column": sub_tree["split_feature"],
-                "value": sub_tree["threshold"],
-            }
-
-            if "split_index" in sub_tree["left_child"]:
-                boundary_dict[sub_tree["split_index"]]["left"] = sub_tree["left_child"]["split_index"]
-
-            if "split_index" in sub_tree["right_child"]:
-                boundary_dict[sub_tree["split_index"]]["right"] = sub_tree["right_child"]["split_index"]
-        else:
-            # we're a leaf!
-            leaf_dict[parent] = leaf_dict.get(parent, {})
-            leaf_dict[parent][child_split] = sub_tree
-
-        if "left_child" in sub_tree:
-            try:
-                route_path["left"] = sub_tree["left_child"]["split_index"]
-            except Exception as e:
+            except Exception:
                 # print("\tleft_child {}".format(e))
                 pass
         if "right_child" in sub_tree:
             try:
                 route_path["right"] = sub_tree["right_child"]["split_index"]
-            except Exception as e:
-                # print("\tright_child {}".format(e))
+            except Exception:
                 pass
 
         # print(route_path)
@@ -287,31 +90,6 @@ def get_route(tree):
             }
 
     return tree_dict, boundary_dict, leaf_dict
-
-
-def boundary_dict_mapping(boundary_dict, mode="raw"):
-    weights = []
-    inter = []
-    pred = []
-
-    coef_mapping = []
-    for idx in sorted(list(boundary_dict.keys())):
-        if "coef" in boundary_dict[idx]:
-            weights.append(boundary_dict[idx]["coef"])
-            inter.append(boundary_dict[idx]["inter"])
-            coef_mapping.append(idx)
-        else:
-            if mode == "proba":
-                pred.append(boundary_dict[idx]["predict"])
-            elif mode == "raw":
-                pred.append(boundary_dict[idx]["leaf_value"])
-            else:
-                raise Exception("Expecting mode in ['proba', 'raw'], got {}".format(mode))
-
-    weights = np.hstack(weights)
-    inter = np.hstack(inter)
-    pred = np.vstack(pred)
-    return [(weights), (inter), (pred)], coef_mapping
 
 
 class BaseTree(object):
@@ -394,7 +172,8 @@ class Tree(BaseTree):
         self.route.sort(key=lambda x: x[1])
 
 
-flatten = lambda l: [item for sublist in l for item in sublist]
+def flatten(ll):
+    return [item for sublist in ll for item in sublist]
 
 
 def split_trees_by_classes(trees, n_classes):
@@ -508,14 +287,6 @@ def sigmoid(z):
     return 1.0 / (1 + np.exp(-z))
 
 
-# softmax by axis...
-def gumbel_softmax(X, tau=1.0, eps=np.finfo(float).eps):
-    # element-wise gumbel softmax
-    # return np.exp(np.log(X+eps)/temp)/np.sum(np.exp(np.log(X+eps)/temp), axis=1)[:, np.newaxis]
-    X_temp = np.clip(X / tau, -32, 32)
-    return 1 / (1 + np.exp(X_temp))
-
-
 def proba_to_alpha(proba=0.1):
     return proba / (1 - proba)
 
@@ -538,7 +309,7 @@ def old_route_to_new_route(route, num_nodes):
                 col.append(node if direction == 0 else node + num_nodes)
             route_array.append(scipy.sparse.coo_matrix((data, (row, col)), shape=(1, num_nodes * 2)).toarray())
         return np.vstack(route_array)
-    except:
+    except Exception:
         return None
 
 
@@ -732,7 +503,7 @@ class NodeLayer(tf.keras.layers.Layer):
 
 def gumbel_softmax(x, tau=0.01):
     x_temp = tf.clip_by_value(x / tau, -32, 32)
-    return 1 / (1 + tf.keras.backend.exp(-x))
+    return 1 / (1 + tf.keras.backend.exp(-x_temp))
 
 
 def activation1(x):
@@ -750,7 +521,7 @@ class LGBClassifier(tf.keras.Model):
         self.create_model(X, y, set_weights)
 
     def create_model(self, X=None, y=None, set_weights=False):
-        nclass = self.base_model.n_classes_
+        # nclass = self.base_model.n_classes_
         model_dump = self.base_model.booster_.dump_model()
         nfeats = len(model_dump["feature_names"])
         trees_ = [m["tree_structure"] for m in model_dump["tree_info"]]

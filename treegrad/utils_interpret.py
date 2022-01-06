@@ -1,12 +1,6 @@
-import copy
-from collections.abc import Iterable
-
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-from interpret.glassbox import ExplainableBoostingClassifier
-from sklearn import datasets
-from sklearn.model_selection import train_test_split
 
 
 class BiasLayer(tf.keras.layers.Layer):
@@ -128,7 +122,6 @@ class EBMClassifier(tf.keras.Model):
                 if interactions[0] == "continuous":
                     left_input = tf.keras.layers.Input(shape=(1,))
                     left_size = len(self.model.pair_preprocessor_.col_bin_edges_[feature_group[0]].tolist()) + 1
-                    left_slice = slice(0, left_size)
                     left_x = tf.keras.layers.Discretization(
                         self.model.pair_preprocessor_.col_bin_edges_[feature_group[0]].tolist()
                     )(left_input)
@@ -141,7 +134,6 @@ class EBMClassifier(tf.keras.Model):
                 elif interactions[0] == "categorical":
                     left_input = tf.keras.layers.Input(shape=(1,), dtype=tf.string)
                     left_size = len(list(self.model.preprocessor_.col_mapping_[feature_group[0]].keys())) + 1
-                    left_slice = slice(0, left_size)
                     left_x = tf.keras.layers.StringLookup(
                         max_tokens=len(list(self.model.preprocessor_.col_mapping_[feature_group[0]].keys())) + 1,
                         vocabulary=list(self.model.preprocessor_.col_mapping_[feature_group[0]].keys()),
@@ -159,7 +151,6 @@ class EBMClassifier(tf.keras.Model):
                 if interactions[1] == "continuous":
                     right_input = tf.keras.layers.Input(shape=(1,))
                     right_size = len(self.model.pair_preprocessor_.col_bin_edges_[feature_group[1]].tolist()) + 1
-                    right_slice = slice(0, right_size)
                     right_x = tf.keras.layers.Discretization(
                         self.model.pair_preprocessor_.col_bin_edges_[feature_group[1]].tolist()
                     )(right_input)
@@ -172,7 +163,6 @@ class EBMClassifier(tf.keras.Model):
                 elif interactions[1] == "categorical":
                     right_input = tf.keras.layers.Input(shape=(1,), dtype=tf.string)
                     right_size = len(list(self.model.preprocessor_.col_mapping_[feature_group[1]].keys())) + 1
-                    right_slice = slice(0, right_size)
                     right_x = tf.keras.layers.StringLookup(
                         max_tokens=len(list(self.model.preprocessor_.col_mapping_[feature_group[1]].keys())) + 1,
                         vocabulary=list(self.model.preprocessor_.col_mapping_[feature_group[1]].keys()),
@@ -233,7 +223,7 @@ class EBMClassifier(tf.keras.Model):
                     else:
                         learned_w = learned_w.reshape(w.shape)
                     self.feature_model[feature_index].set_weights([learned_w])
-                except:
+                except Exception:
                     print(nm, w.shape, learned_w.shape)
             self.bias.set_weights([np.array(self.model.intercept_).reshape((1,))])
 
