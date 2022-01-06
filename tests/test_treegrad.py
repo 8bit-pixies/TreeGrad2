@@ -4,13 +4,8 @@ from interpret.glassbox import ExplainableBoostingClassifier
 from sklearn import datasets
 from sklearn.metrics import accuracy_score
 
-from treegrad import __version__
 from treegrad.treegrad import TreeGradClassifier, make_treegrad
 from treegrad.utils_lgb import LGBClassifier
-
-
-def test_version():
-    assert __version__ == "0.1.0"
 
 
 def test_treegrad_interpret_func():
