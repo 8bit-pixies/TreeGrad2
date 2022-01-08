@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "treegrad"
-version = "0.1.0"
+version = "2.0.0"
 description = ""
 authors = ["CS <2498638+charliec443@users.noreply.github.com>"]
 
