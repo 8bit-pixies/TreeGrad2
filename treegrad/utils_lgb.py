@@ -525,9 +525,18 @@ class LGBClassifier(tf.keras.Model):
         # nclass = self.base_model.n_classes_
         model_dump = self.base_model.booster_.dump_model()
         nfeats = len(model_dump["feature_names"])
+        n_classes = self.base_model.n_classes_
         trees_ = [m["tree_structure"] for m in model_dump["tree_info"]]
         trees_params = multi_tree_to_param(X, y, trees_)
         self.trees_params = trees_params
+
+        # if n_classes == 2:
+        #     trees_params = multi_tree_to_param(X, y, trees_)
+        #     self.trees_params = trees_params
+        # else:
+        #     trees = split_trees_by_classes(trees_, n_classes)
+        #     trees_params = multiclass_trees_to_param(X, y, trees)
+        #     self.trees_params = trees_params
         inputs = tf.keras.Input(shape=(nfeats,))
         decision_tree_layers = []
         for tree_idx in range(len(trees_)):
@@ -546,12 +555,31 @@ class LGBClassifier(tf.keras.Model):
                     name=f"decision_tree_{tree_idx}",
                 )(inputs)
             )
-        if len(decision_tree_layers) > 1:
+        if len(decision_tree_layers) == 1:
+            log_preds = decision_tree_layers[0]
+        elif len(decision_tree_layers) > 1 and n_classes == 2:
             log_preds = tf.keras.layers.Add()(decision_tree_layers)
         else:
-            log_preds = decision_tree_layers[0]
-        log_preds = tf.keras.layers.Lambda(lambda x: tf.clip_by_value(x, -32, 32))(log_preds)
-        preds = tf.keras.layers.Activation("sigmoid")(log_preds)
+            # multiclass - sum the layers by index, based on numtrees
+            # ugly as....as long as it works, will fix later.
+            log_pred_idx = {}
+            log_pred_list = []
+            for idx in range(len(decision_tree_layers)):
+                for class_n in range(n_classes):
+                    if idx % n_classes == class_n:
+                        log_pred_idx[class_n] = log_pred_idx.get(class_n, []) + [idx]
+            for nclass, idx_list in log_pred_idx.items():
+                if len(idx_list) == 1:
+                    log_pred_list.append(decision_tree_layers[idx_list[0]])
+                else:
+                    log_pred_list.append(tf.keras.layers.Add()([decision_tree_layers[idx] for idx in idx_list]))
+            log_preds = tf.keras.layers.Concatenate()(log_pred_list)
+        if n_classes == 2:
+            log_preds = tf.keras.layers.Lambda(lambda x: tf.clip_by_value(x, -32, 32))(log_preds)
+            preds = tf.keras.layers.Activation("sigmoid")(log_preds)
+        else:
+            log_preds = tf.keras.layers.Lambda(lambda x: tf.clip_by_value(x, -32, 32))(log_preds)
+            preds = tf.keras.layers.Lambda(lambda x: x / tf.reduce_sum(x, -1, keepdims=True))(log_preds)
         self.model = tf.keras.Model(inputs=inputs, outputs=preds)
 
         if set_weights:
