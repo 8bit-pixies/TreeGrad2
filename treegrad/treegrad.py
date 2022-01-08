@@ -16,15 +16,15 @@ if "lightgbm" in sys.modules:
 
 
 def make_treegrad(model, **kwargs):
-    # refactor this
+    # refactor this - also hacking str(type(...)) is not ideal
     if model is None:
         raise ValueError("Model not provided!")
-    elif interpret is not None:
-        if type(model) is interpret.glassbox.ExplainableBoostingClassifier:
-            return EBMClassifier(model, **kwargs)
-    elif lgb is not None:
-        if type(model) is lgb.LGBMClassifier:
-            return LGBClassifier(model, **kwargs)
+    elif interpret is not None and "interpret" in str(type(model)):
+        return EBMClassifier(model, **kwargs)
+    elif lgb is not None and "lightgbm" in str(type(model)):
+        return LGBClassifier(model, **kwargs)
+    else:
+        raise ValueError(f"Model of type: {type(model)} is not Supported!")
 
 
 class TreeGradClassifier(tf.keras.Model):

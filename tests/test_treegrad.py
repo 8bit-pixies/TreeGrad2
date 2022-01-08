@@ -74,4 +74,6 @@ def test_treegrad_tf_multi_func_multi_est():
 
     # clearly the interface is broken here...
     model = LGBClassifier(lgb_model, X=X, y=y, set_weights=True)
+    model2 = TreeGradClassifier(lgb_model, X=X, y=y, set_weights=True)
     assert np.abs(accuracy_score(y, np.argmax(model.predict(X), -1)) - accuracy_score(y, lgb_model.predict(X))) < 0.2
+    assert np.abs(accuracy_score(y, np.argmax(model2.predict(X), -1)) - accuracy_score(y, lgb_model.predict(X))) < 0.2
