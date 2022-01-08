@@ -495,10 +495,11 @@ class NodeLayer(tf.keras.layers.Layer):
             shape=[
                 self.num_nodes,
             ],
+            trainable=True,
         )
 
-    def call(self, input):
-        return tf.matmul(input, tf.concat([self.kernel, -self.kernel], 1)) + tf.concat([self.bias, -self.bias], 0)
+    def call(self, inputs):
+        return tf.matmul(inputs, tf.concat([self.kernel, -self.kernel], 1)) + tf.concat([self.bias, -self.bias], 0)
 
 
 def gumbel_softmax(x, tau=0.01):
