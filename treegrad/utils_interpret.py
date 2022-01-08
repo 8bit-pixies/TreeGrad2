@@ -46,6 +46,8 @@ class EBMClassifier(tf.keras.Model):
     def __init__(self, model=None, set_weights=False):
         super().__init__()
         self.model = model
+        if len(self.model.classes_) > 2:
+            raise Exception("Multiclass classification not supported at this time")
         if set_weights:
             self.bias = BiasLayer(name="bias", intercept=model.intercept_)
         else:
