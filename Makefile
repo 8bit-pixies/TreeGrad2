@@ -9,5 +9,5 @@ lint-python:
 
 format-python:
 	poetry run python -m isort treegrad/ tests/
-	poetry run python -m black --target-version py37 treegrad tests
+	poetry run python -m black --target-version py37 treegrad tests scratch benchmark
 

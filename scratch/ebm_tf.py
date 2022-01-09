@@ -18,9 +18,7 @@ from interpret.glassbox import (
 
 X, y = datasets.load_diabetes(return_X_y=True, as_frame=True)
 seed = 1
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.20, random_state=seed
-)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.20, random_state=seed)
 
 ebm = ExplainableBoostingRegressor(random_state=seed)
 ebm.fit(X_train, y_train)
@@ -77,36 +75,17 @@ class EBMModel(tf.keras.Model):
                     tf.keras.Sequential(
                         [
                             tf.keras.layers.Discretization(
-                                list(
-                                    self.model.preprocessor_.col_bin_edges_[
-                                        feature_group[0]
-                                    ]
-                                )
+                                list(self.model.preprocessor_.col_bin_edges_[feature_group[0]])
                             ),
                             tf.keras.layers.IntegerLookup(
-                                len(
-                                    self.model.preprocessor_.col_bin_edges_[
-                                        feature_group[0]
-                                    ]
-                                )
-                                + 1,
+                                len(self.model.preprocessor_.col_bin_edges_[feature_group[0]]) + 1,
                                 vocabulary=tf.constant(
-                                    list(
-                                        range(
-                                            len(
-                                                self.model.preprocessor_.col_bin_edges_[
-                                                    feature_group[0]
-                                                ]
-                                            )
-                                        )
-                                    )
+                                    list(range(len(self.model.preprocessor_.col_bin_edges_[feature_group[0]])))
                                 ),
                                 output_mode="one_hot",
                                 pad_to_max_tokens=True,
                             ),
-                            tf.keras.layers.Dense(
-                                1, use_bias=False, name=f"{feature_name}"
-                            ),
+                            tf.keras.layers.Dense(1, use_bias=False, name=f"{feature_name}"),
                         ]
                     )
                 )
@@ -120,70 +99,26 @@ class EBMModel(tf.keras.Model):
                 # else not implemented right now
                 assert interactions[0] == "continuous"
                 assert interactions[1] == "continuous"
-                left_size = (
-                    len(
-                        self.model.pair_preprocessor_.col_bin_edges_[
-                            feature_group[0]
-                        ].tolist()
-                    )
-                    + 1
-                )
-                right_size = (
-                    len(
-                        self.model.pair_preprocessor_.col_bin_edges_[
-                            feature_group[1]
-                        ].tolist()
-                    )
-                    + 1
-                )
+                left_size = len(self.model.pair_preprocessor_.col_bin_edges_[feature_group[0]].tolist()) + 1
+                right_size = len(self.model.pair_preprocessor_.col_bin_edges_[feature_group[1]].tolist()) + 1
                 left_input = tf.keras.layers.Input(shape=(1,))
                 left_x = tf.keras.layers.Discretization(
-                    self.model.pair_preprocessor_.col_bin_edges_[
-                        feature_group[0]
-                    ].tolist()
+                    self.model.pair_preprocessor_.col_bin_edges_[feature_group[0]].tolist()
                 )(left_input)
                 left_x = tf.keras.layers.IntegerLookup(
-                    len(
-                        self.model.pair_preprocessor_.col_bin_edges_[
-                            feature_group[0]
-                        ].tolist()
-                    )
-                    + 1,
+                    len(self.model.pair_preprocessor_.col_bin_edges_[feature_group[0]].tolist()) + 1,
                     vocabulary=tf.constant(
-                        list(
-                            range(
-                                len(
-                                    self.model.pair_preprocessor_.col_bin_edges_[
-                                        feature_group[0]
-                                    ].tolist()
-                                )
-                            )
-                        )
+                        list(range(len(self.model.pair_preprocessor_.col_bin_edges_[feature_group[0]].tolist())))
                     ),
                 )(left_x)
                 right_input = tf.keras.layers.Input(shape=(1,))
                 right_x = tf.keras.layers.Discretization(
-                    self.model.pair_preprocessor_.col_bin_edges_[
-                        feature_group[1]
-                    ].tolist()
+                    self.model.pair_preprocessor_.col_bin_edges_[feature_group[1]].tolist()
                 )(right_input)
                 right_x = tf.keras.layers.IntegerLookup(
-                    len(
-                        self.model.pair_preprocessor_.col_bin_edges_[
-                            feature_group[1]
-                        ].tolist()
-                    )
-                    + 1,
+                    len(self.model.pair_preprocessor_.col_bin_edges_[feature_group[1]].tolist()) + 1,
                     vocabulary=tf.constant(
-                        list(
-                            range(
-                                len(
-                                    self.model.pair_preprocessor_.col_bin_edges_[
-                                        feature_group[1]
-                                    ].tolist()
-                                )
-                            )
-                        )
+                        list(range(len(self.model.pair_preprocessor_.col_bin_edges_[feature_group[1]].tolist())))
                     ),
                 )(right_x)
                 # left_input = tf.keras.Sequential([
@@ -198,21 +133,13 @@ class EBMModel(tf.keras.Model):
                 # ])
                 # print(left_input, right_input)
                 # print(dir(left_input))
-                output = InteractionLayer(
-                    [left_size, right_size], name=f"{feature_name}"
-                )([left_x, right_x])
-                self.feature_model.append(
-                    tf.keras.Model(inputs=[left_input, right_input], outputs=output)
-                )
+                output = InteractionLayer([left_size, right_size], name=f"{feature_name}")([left_x, right_x])
+                self.feature_model.append(tf.keras.Model(inputs=[left_input, right_input], outputs=output))
                 info_config["feature_type"] = feature_type
-                info_config["column_name"] = [
-                    self.model.preprocessor_.feature_names[idx] for idx in feature_group
-                ]
+                info_config["column_name"] = [self.model.preprocessor_.feature_names[idx] for idx in feature_group]
                 info_config["column_index"] = list(feature_group)
                 # info_config["scores"] = self.model.additive_terms_[feature_index][1:]
-                info_config["scores"] = self.model.explain_global().data(feature_index)[
-                    "scores"
-                ]
+                info_config["scores"] = self.model.explain_global().data(feature_index)["scores"]
                 self.feature_info.append(info_config)
 
             else:
@@ -222,9 +149,7 @@ class EBMModel(tf.keras.Model):
         if set_weights:
             for feature_index in range(len(self.feature_names)):
                 nm = self.feature_names[feature_index]
-                self.feature_model[feature_index].get_layer(nm).set_weights(
-                    self.feature_info[feature_index]["scores"]
-                )
+                self.feature_model[feature_index].get_layer(nm).set_weights(self.feature_info[feature_index]["scores"])
             self.bias.set_weights(model.intercept_)
 
     def call(self, inputs):
@@ -237,9 +162,7 @@ class EBMModel(tf.keras.Model):
                 if type(cols) is str:
                     outputs.append(mod(np.array(inputs[cols])))
                 else:
-                    outputs.append(
-                        mod([np.array(inputs[cols[0]]), np.array(inputs[cols[1]])])
-                    )
+                    outputs.append(mod([np.array(inputs[cols[0]]), np.array(inputs[cols[1]])]))
         else:
             for mod, info in zip(self.feature_model, self.feature_info):
                 cols = info["column_index"]
